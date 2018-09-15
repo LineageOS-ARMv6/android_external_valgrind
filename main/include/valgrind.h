@@ -542,6 +542,27 @@ typedef
 
 #if defined(PLAT_arm_linux)
 
+#if defined(__thumb__) && !defined(__thumb2__)
+# define __VALGRIND_SWITCH_TO_ARM \
+"adr r3, 5f\n" \
+"bx r3\n" \
+".align\n" \
+".arm\n" \
+"5:\n"
+/* note: the leading \n below is intentional */
+# define __VALGRIND_SWITCH_TO_THUMB \
+"\n" \
+"adr r3, 6f+1\n" \
+"bx r3\n" \
+".thumb\n" \
+"6:\n"
+# define __VALGRIND_CLOBBERS "r3", /* list of clobbered registers */
+#else
+# define __VALGRIND_SWITCH_TO_ARM /* nothing */
+# define __VALGRIND_SWITCH_TO_THUMB /* nothing */
+# define __VALGRIND_CLOBBERS /* nothing */
+#endif
+
 typedef
    struct { 
       unsigned int nraddr; /* where's the code? */
@@ -565,36 +586,43 @@ typedef
     _zzq_args[3] = (unsigned int)(_zzq_arg3);                     \
     _zzq_args[4] = (unsigned int)(_zzq_arg4);                     \
     _zzq_args[5] = (unsigned int)(_zzq_arg5);                     \
-    __asm__ volatile("mov r3, %1\n\t" /*default*/                 \
+    __asm__ volatile(__VALGRIND_SWITCH_TO_ARM                     \
+                     "mov r3, %1\n\t" /*default*/                 \
                      "mov r4, %2\n\t" /*ptr*/                     \
                      __SPECIAL_INSTRUCTION_PREAMBLE               \
                      /* R3 = client_request ( R4 ) */             \
                      "orr r10, r10, r10\n\t"                      \
                      "mov %0, r3"     /*result*/                  \
+                     __VALGRIND_SWITCH_TO_THUMB                   \
                      : "=r" (_zzq_result)                         \
                      : "r" (_zzq_default), "r" (&_zzq_args[0])    \
-                     : "cc","memory", "r3", "r4");                \
+                     : "cc","memory", __VALGRIND_CLOBBERS         \
+                     "r3", "r4");                                 \
     _zzq_result;                                                  \
   })
 
 #define VALGRIND_GET_NR_CONTEXT(_zzq_rlval)                       \
   { volatile OrigFn* _zzq_orig = &(_zzq_rlval);                   \
     unsigned int __addr;                                          \
-    __asm__ volatile(__SPECIAL_INSTRUCTION_PREAMBLE               \
+    __asm__ volatile(__VALGRIND_SWITCH_TO_ARM                     \
+                     __SPECIAL_INSTRUCTION_PREAMBLE               \
                      /* R3 = guest_NRADDR */                      \
                      "orr r11, r11, r11\n\t"                      \
                      "mov %0, r3"                                 \
+                     __VALGRIND_SWITCH_TO_THUMB                   \
                      : "=r" (__addr)                              \
                      :                                            \
-                     : "cc", "memory", "r3"                       \
+                     : __VALGRIND_CLOBBERS "cc", "memory", "r3"   \
                     );                                            \
     _zzq_orig->nraddr = __addr;                                   \
   }
 
 #define VALGRIND_BRANCH_AND_LINK_TO_NOREDIR_R4                    \
+                     __VALGRIND_SWITCH_TO_ARM                     \
                      __SPECIAL_INSTRUCTION_PREAMBLE               \
                      /* branch-and-link-to-noredir *%R4 */        \
-                     "orr r12, r12, r12\n\t"
+                     "orr r12, r12, r12\n\t"                      \
+                     __VALGRIND_SWITCH_TO_THUMB
 
 #endif /* PLAT_arm_linux */
 
@@ -2875,7 +2903,7 @@ typedef
 #if defined(PLAT_arm_linux)
 
 /* These regs are trashed by the hidden call. */
-#define __CALLER_SAVED_REGS "r0", "r1", "r2", "r3","r4","r14"
+#define __CALLER_SAVED_REGS __VALGRIND_CLOBBERS "r0", "r1", "r2", "r3","r4","r14"
 
 /* Macros to save and align the stack before making a function
    call and restore it afterwards as gcc may not keep the stack
